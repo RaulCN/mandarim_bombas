@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fase 1 - Números em Mandarim</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="background"></div>
+    <div class="scanlines"></div>
+    <div class="game-container">
+        <div class="header">
+            <div class="hearts">❤️❤️❤️❤️</div>
+            <div class="progress">0/20</div>
+            <button class="pause-btn">⏸ PAUSE</button>
+        </div>
+        <div class="bombs-container"></div>
+        <div class="game-over hidden">
+            <h2></h2>
+            <div class="buttons-container">
+                <button class="restart-btn">JOGAR NOVAMENTE</button>
+                <a href="index.html" class="menu-btn">MENU PRINCIPAL</a>
+            </div>
+        </div>
+    </div>
+    <script>
+        const CONFIG = {
+            pairs: [
+                { char: "一", number: "1" },
+                { char: "二", number: "2" },
+                { char: "三", number: "3" },
+                { char: "四", number: "4" },
+                { char: "五", number: "5" },
+                { char: "六", number: "6" },
+                { char: "七", number: "7" },
+                { char: "八", number: "8" },
+                { char: "九", number: "9" },
+                { char: "十", number: "10" }
+            ],
+            maxBombs: 3,
+            spawnInterval: 2500, // Aumentado para ficar mais fácil
+            minFuseTime: 6000,  // Aumentado para ficar mais fácil
+            maxFuseTime: 9000,  // Aumentado para ficar mais fácil
+            margin: 50,
+            requiredScore: 20,  // Aumentado para 20 pontos
+            fuseSpeedMultiplier: 2
+        };
+
+        let gameState = {
+            score: 0,
+            lives: 4,
+            isPaused: false,
+            activeBombs: [],
+            spawnTimer: null,
+            fuseSpeed: 0.7 // Começa mais lento
+        };
+
+        const elements = {
+            hearts: document.querySelector(".hearts"),
+            progress: document.querySelector(".progress"),
+            pauseBtn: document.querySelector(".pause-btn"),
+            bombsContainer: document.querySelector(".bombs-container"),
+            gameOver: document.querySelector(".game-over"),
+            gameOverTitle: document.querySelector(".game-over h2"),
+            restartBtn: document.querySelector(".restart-btn")
+        };
+
+        startGame();
+
+        function startGame() {
+            gameState = {
+                score: 0,
+                lives: 4,
+                isPaused: false,
+                activeBombs: [],
+                spawnTimer: null,
+                fuseSpeed: 0.7 // Começa mais lento
+            };
+            
+            elements.bombsContainer.innerHTML = "";
+            elements.gameOver.classList.add("hidden");
+            elements.progress.textContent = "0/20";
+            updateUI();
+            startSpawning();
+        }
+
+        function updateUI() {
+            elements.hearts.innerHTML = Array(4).fill().map((_, i) => 
+                i < gameState.lives ? "❤️" : "🖤"
+            ).join("");
+            elements.progress.textContent = `${gameState.score}/20`;
+        }
+
+        function startSpawning() {
+            spawnBomb();
+            gameState.spawnTimer = setInterval(() => {
+                if (!gameState.isPaused && gameState.activeBombs.length < CONFIG.maxBombs) {
+                    spawnBomb();
+                }
+            }, CONFIG.spawnInterval);
+        }
+
+        function spawnBomb() {
+            const container = elements.bombsContainer;
+            const maxX = container.clientWidth - 100 - CONFIG.margin;
+            const maxY = container.clientHeight - 130 - CONFIG.margin;
+            const x = CONFIG.margin + Math.random() * maxX;
+            const y = CONFIG.margin + Math.random() * maxY;
+            
+            const bomb = document.createElement("div");
+            bomb.className = "bomb";
+            bomb.style.left = `${x}px`;
+            bomb.style.top = `${y}px`;
+            
+            const isDangerous = Math.random() < 0.3;
+            if (isDangerous) {
+                bomb.classList.add("dangerous");
+            }
+            
+            const pair = CONFIG.pairs[Math.floor(Math.random() * CONFIG.pairs.length)];
+            
+            // Gabarito fixo para os primeiros 10 pontos
+            let answers;
+            if (gameState.score < 10) {
+                // Sempre mostre a resposta correta e duas respostas fixas (erradas mas consistentes)
+                const fixedWrongAnswers = ["1", "2"].filter(w => w !== pair.number);
+                answers = [pair.number, ...fixedWrongAnswers.slice(0, 2)];
+            } else {
+                // Depois dos 10 pontos, comportamento normal
+                const wrongAnswers = [];
+                while (wrongAnswers.length < 3) {
+                    const wrong = CONFIG.pairs[Math.floor(Math.random() * CONFIG.pairs.length)].number;
+                    if (wrong !== pair.number && !wrongAnswers.includes(wrong)) {
+                        wrongAnswers.push(wrong);
+                    }
+                }
+                answers = [pair.number, ...wrongAnswers.slice(0, 2)];
+            }
+            
+            answers.sort(() => Math.random() - 0.5);
+            
+            bomb.innerHTML = `
+                <div class="fuse-container">
+                    <div class="fuse"></div>
+                </div>
+                <div class="bomb-body">
+                    <div class="question">${pair.char}</div>
+                    <div class="answers">
+                        ${answers.map(num => `<div class="answer">${num}</div>`).join("")}
+                    </div>
+                </div>
+            `;
+            
+            elements.bombsContainer.appendChild(bomb);
+            
+            const answerElements = bomb.querySelectorAll(".answer");
+            answerElements.forEach(answerEl => {
+                answerEl.addEventListener("click", () => handleAnswer(
+                    answerEl.textContent === pair.number,
+                    bomb
+                ));
+            });
+            
+            const fuseTime = CONFIG.minFuseTime + Math.random() * (CONFIG.maxFuseTime - CONFIG.minFuseTime);
+            const fuseEl = bomb.querySelector(".fuse");
+            let startTime = Date.now();
+            let elapsed = 0;
+            
+            function animateFuse() {
+                if (gameState.isPaused) {
+                    requestAnimationFrame(animateFuse);
+                    return;
+                }
+                
+                elapsed += (Date.now() - startTime) * gameState.fuseSpeed;
+                startTime = Date.now();
+                const progress = elapsed / fuseTime;
+                const height = 100 * (1 - progress);
+                
+                if (height <= 0) {
+                    handleAnswer(false, bomb);
+                    return;
+                }
+                
+                fuseEl.style.height = `${height}%`;
+                requestAnimationFrame(animateFuse);
+            }
+            
+            const animationId = requestAnimationFrame(animateFuse);
+            gameState.activeBombs.push({ 
+                bomb, 
+                animationId,
+                isDisarmed: false,
+                fuseTime,
+                startTime,
+                fuseEl,
+                animateFuse
+            });
+        }
+
+        function handleAnswer(isCorrect, bomb) {
+            const bombObj = gameState.activeBombs.find(b => b.bomb === bomb);
+            if (!bombObj || bombObj.isDisarmed) return;
+            
+            bombObj.isDisarmed = true;
+            cancelAnimationFrame(bombObj.animationId);
+            
+            if (isCorrect) {
+                showSuccess(bomb);
+                gameState.score++;
+                updateUI();
+                
+                // Ajuste de dificuldade progressiva somente após 10 pontos
+                if (gameState.score < 10) {
+                    gameState.fuseSpeed = 0.7; // Mantém lento
+                } else if (gameState.score >= 15) {
+                    gameState.fuseSpeed = 1.2; // Acelera um pouco
+                } else {
+                    gameState.fuseSpeed = 1; // velocidade normal
+                }
+                
+                if (gameState.score >= CONFIG.requiredScore) {
+                    endGame(true);
+                }
+            } else {
+                explodeBomb(bomb);
+                gameState.lives--;
+                updateUI();
+                
+                if (gameState.lives <= 0) {
+                    endGame(false);
+                }
+            }
+            
+            setTimeout(() => {
+                if (bomb.parentNode) {
+                    bomb.remove();
+                    gameState.activeBombs = gameState.activeBombs.filter(b => b.bomb !== bomb);
+                }
+            }, 500);
+        }
+
+        function showSuccess(bomb) {
+            const bombBody = bomb.querySelector(".bomb-body");
+            const effect = document.createElement("div");
+            effect.className = "success";
+            
+            // Adiciona emoji de feedback
+            const emoji = document.createElement("div");
+            emoji.className = "feedback-emoji";
+            emoji.textContent = "⭐"; // Estrela para acerto
+            emoji.style.fontSize = "2rem";
+            emoji.style.position = "absolute";
+            emoji.style.top = "-30px";
+            emoji.style.left = "50%";
+            emoji.style.transform = "translateX(-50%)";
+            emoji.style.zIndex = "100";
+            emoji.style.animation = "floatUp 1s ease-out forwards";
+            
+            bombBody.appendChild(effect);
+            bombBody.appendChild(emoji);
+            
+            setTimeout(() => {
+                if (effect.parentNode) effect.remove();
+                if (emoji.parentNode) emoji.remove();
+            }, 1000);
+        }
+
+        function explodeBomb(bomb) {
+            const bombBody = bomb.querySelector(".bomb-body");
+            
+            // Adiciona emoji de feedback
+            const emoji = document.createElement("div");
+            emoji.className = "feedback-emoji";
+            emoji.textContent = "😢"; // Carinha triste para erro
+            emoji.style.fontSize = "2rem";
+            emoji.style.position = "absolute";
+            emoji.style.top = "-30px";
+            emoji.style.left = "50%";
+            emoji.style.transform = "translateX(-50%)";
+            emoji.style.zIndex = "100";
+            emoji.style.animation = "floatUp 1s ease-out forwards";
+            bombBody.appendChild(emoji);
+            
+            const explosion = document.createElement("div");
+            explosion.className = "explosion";
+            bombBody.appendChild(explosion);
+            
+            // Criar mais partículas para melhor efeito
+            for (let i = 0; i < 20; i++) {
+                createParticle(bomb);
+            }
+            
+            const mark = document.createElement("div");
+            mark.className = "explosion-mark";
+            mark.style.left = bomb.style.left;
+            mark.style.top = `calc(${bomb.style.top} + 50px)`;
+            mark.style.width = "100px";
+            mark.style.height = "100px";
+            elements.bombsContainer.appendChild(mark);
+            
+            // Efeito de tremer
+            elements.bombsContainer.classList.add("shake-strong");
+            setTimeout(() => {
+                elements.bombsContainer.classList.remove("shake-strong");
+            }, 1000);
+            
+            setTimeout(() => {
+                if (explosion.parentNode) explosion.remove();
+                if (emoji.parentNode) emoji.remove();
+            }, 1000);
+        }
+
+        function createParticle(bomb) {
+            const particle = document.createElement("div");
+            particle.className = "particle";
+            particle.style.left = `calc(${bomb.style.left} + 40px)`;
+            particle.style.top = `calc(${bomb.style.top} + 40px)`;
+            
+            const hue = 10 + Math.random() * 20;
+            particle.style.backgroundColor = `hsl(${hue}, 100%, 50%)`;
+            
+            const size = 3 + Math.random() * 10;
+            particle.style.width = `${size}px`;
+            particle.style.height = `${size}px`;
+            
+            const angle = Math.random() * Math.PI * 2;
+            const velocity = 3 + Math.random() * 8; // Mais rápido
+            const lifetime = 800 + Math.random() * 800; // Dura mais tempo
+            
+            elements.bombsContainer.appendChild(particle);
+            
+            let startTime = Date.now();
+            
+            function animateParticle() {
+                const elapsed = Date.now() - startTime;
+                const progress = elapsed / lifetime;
+                
+                if (progress >= 1) {
+                    particle.remove();
+                    return;
+                }
+                
+                const distance = velocity * elapsed / 50;
+                const x = Math.cos(angle) * distance;
+                const y = Math.sin(angle) * distance;
+                
+                particle.style.transform = `translate(${x}px, ${y}px)`;
+                particle.style.opacity = 1 - progress;
+                
+                // Adiciona rastro
+                if (Math.random() < 0.3) {
+                    const trail = document.createElement("div");
+                    trail.className = "particle-trail";
+                    trail.style.left = particle.style.left;
+                    trail.style.top = particle.style.top;
+                    trail.style.width = `${size * 0.7}px`;
+                    trail.style.height = `${size * 0.7}px`;
+                    trail.style.backgroundColor = particle.style.backgroundColor;
+                    trail.style.opacity = "0.6";
+                    elements.bombsContainer.appendChild(trail);
+                    
+                    setTimeout(() => {
+                        if (trail.parentNode) {
+                            trail.style.opacity = "0";
+                            trail.style.transition = "opacity 0.5s";
+                            setTimeout(() => trail.remove(), 500);
+                        }
+                    }, 50);
+                }
+                
+                requestAnimationFrame(animateParticle);
+            }
+            
+            requestAnimationFrame(animateParticle);
+        }
+
+        function endGame(isWin) {
+            clearInterval(gameState.spawnTimer);
+            gameState.activeBombs.forEach(b => {
+                cancelAnimationFrame(b.animationId);
+            });
+            
+            elements.gameOverTitle.textContent = isWin ? "🎉 VOCÊ VENCEU! 🎉" : "💣 GAME OVER 💣";
+            elements.gameOverTitle.style.color = isWin ? "#2ecc71" : "#e74c3c";
+            elements.gameOver.classList.remove("hidden");
+        }
+
+        function togglePause() {
+            gameState.isPaused = !gameState.isPaused;
+            document.querySelectorAll("*").forEach(el => {
+                el.classList.toggle("paused", gameState.isPaused);
+            });
+            elements.pauseBtn.textContent = gameState.isPaused ? "▶ PLAY" : "⏸ PAUSE";
+            
+            if (gameState.isPaused) {
+                clearInterval(gameState.spawnTimer);
+            } else {
+                gameState.activeBombs.forEach(bomb => {
+                    bomb.startTime = Date.now();
+                });
+                
+                gameState.spawnTimer = setInterval(() => {
+                    if (gameState.activeBombs.length < CONFIG.maxBombs) {
+                        spawnBomb();
+                    }
+                }, CONFIG.spawnInterval);
+            }
+        }
+
+        elements.pauseBtn.addEventListener("click", togglePause);
+        document.addEventListener("keydown", (e) => {
+            if (e.code === "Space") {
+                e.preventDefault();
+                togglePause();
+            }
+        });
+        elements.restartBtn.addEventListener("click", startGame);
+    </script>
+</body>
+</html>
